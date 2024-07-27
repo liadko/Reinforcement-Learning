@@ -1,64 +1,107 @@
 #include <iostream>
 #include <vector>
-
+#include <cassert>
 
 using std::cout;
 using std::vector;
 
-const int STATES = 5;
-const int ACTIONS = 2;
-const float GAMMA = 0.95f;
+//const int STATES = 5;
+//const int ACTIONS = 2;
+const float GAMMA = 1.0f;
+const float HEADS = 0.4f;
+const int MAX = 100;
+
+vector<int> policy(MAX, 0);
+vector<float> value(MAX + 1, 0);
+
+int reward(int new_s)
+{
+	return 0;
+
+	if (new_s == MAX)
+		return 1;
+}
+
+void improvePolicyBasedOnValue()
+{
+	for (int s = 1; s < MAX; s++)
+	{
+		int best_action = -1;
+		float best_action_value = -1;
+
+		for (int a = 1; a <= std::min(s, MAX - s); a++)
+		{
+			assert(s + a <= MAX);
+			assert(s - a >= 0);
+
+			float action_value = 0;
+			action_value += HEADS * (reward(s + a) + GAMMA * value[s + a]);
+			action_value += (1 - HEADS) * (reward(s - a) + GAMMA * value[s - a]);
+			if (action_value > best_action_value + 0.00001f)
+			{
+				best_action_value = action_value;
+				best_action = a;
+			}
+		}
+		//cout << "best action at state " << s << " is to bet " << best_action << '\n';
+		policy[s] = best_action;
+	}
+}
+
+
+void updateValueToMatchPolicy()
+{
+	vector<float> new_value(MAX + 1, 0);
+
+	for (int s = 1; s < MAX; s++)
+	{
+		int chosen_action = policy[s];
+
+		assert(s + chosen_action <= MAX);
+		assert(s - chosen_action >= 0);
+		
+		new_value[s] = 0;
+		new_value[s] += HEADS * (reward(s + chosen_action) + GAMMA * value[s + chosen_action]);
+		new_value[s] += (1 - HEADS) * (reward(s - chosen_action) + GAMMA * value[s - chosen_action]);
+	}
+	for (int s = 1; s < MAX; s++)
+		value[s] = new_value[s];
+
+}
 
 int main()
 {
-	vector<float> policy = { 0.4f, 0.6f };
-	vector<float> value = { 19.2f, 16.5f, -1.0f, 18.1f, 16.2f };
-
-	// 3 possible rewards
-	vector<vector<float>> prob(STATES, vector<float>(3));
-
-	prob[0][0] = 0.34f;
-	prob[0][1] = 0.05f;
-	prob[0][2] = 0.17f;
-
-	prob[1][0] = 0.17f;
-	prob[1][1] = 0.23f;
-	prob[1][2] = 0.04f;
-
-	prob[3][0] = 0.12f;
-	prob[3][1] = 0.22f;
-	prob[3][2] = 0.20f;
-
-	prob[4][0] = 0.09f;
-	prob[4][1] = 0.32f;
-	prob[4][2] = 0.05f;
-
-	float right_action_value = 0;
-	for (int s = 3; s < STATES; s++)
+	value[MAX] = 1.0f;
+	for (int i = 0; i < 10000; i++)
 	{
-		for (int r = 0; r < 3; r++)
+		improvePolicyBasedOnValue();
+
+		/*for (int i = 1; i < MAX; i++)
 		{
-			right_action_value += prob[s][r] * (r + GAMMA * value[s]);
+			cout << policy[i] << '\n';
 		}
+
+		cout << '\n';*/
+		updateValueToMatchPolicy();
+
+		//for (int i = 1; i < MAX; i++)
+		//{
+		//	cout << value[i] << '\n';
+		//}
+		//cout << '\n';
+		//
 	}
 
-	cout <<  "Expected Value For Right Action: " << right_action_value << '\n';
-
-	float left_action_value = 0;
-	for (int s = 0; s < 2; s++)
+	cout << "Final Value Function\n";
+	for (int i = 1; i < MAX; i++)
 	{
-		for (int r = 0; r < 3; r++)
-		{
-			left_action_value += prob[s][r] * (r + GAMMA * value[s]);
-		}
+		cout << value[i] << '\n';
 	}
 
-	cout << "Expected Value For Left Action: " << left_action_value << '\n';
-
-	cout << "Value Of 2: " << 0.4f * left_action_value + 0.6f * right_action_value << '\n';
-	/*for (int a = 0; a < ACTIONS; a++)
+	cout << "Final Policy\n";
+	for (int i = 1; i < MAX; i++)
 	{
-		expected_2 += policy[a] * 
-	}*/
-
+		cout << policy[i] << '\n';
+	}
+	
 }

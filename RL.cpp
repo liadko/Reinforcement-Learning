@@ -26,8 +26,8 @@ int dx[4] = { 0, 1, 0, -1 };
 int dy[4] = { -1, 0, 1, 0 };
 
 
-// returns direction
-int queryPolicy(int x, int y, float epsilon)
+// returns direction to move in, based on the policy and epsilon
+int selectAction(int x, int y, float epsilon)
 {
 	if ((static_cast<float>(rand()) / RAND_MAX) < epsilon)
 		return rand() % 4;
@@ -81,16 +81,17 @@ float sarsaPrediction(int next_x, int next_y, int next_a)
 // consider the best possible next_action.
 float qLearningPrediction(int next_x, int next_y)
 {
-	return policy[next_x][next_y][queryPolicy(next_x, next_y, 0)];
+	return policy[next_x][next_y][selectAction(next_x, next_y, 0)];
 }
 
+// weigh the prediction based on the next action probabilities.
 float expectedSarsaPrediction(int next_x, int next_y, float epsilon)
 {
-	float* probs = new float[4];
+	float probs[4];
 	for (int a = 0; a < 4; a++)
 		probs[a] = epsilon / 4.0f;
 
-	int best_action = queryPolicy(next_x, next_y, 0);
+	int best_action = selectAction(next_x, next_y, 0);
 	probs[best_action] += 1 - epsilon;
 
 
@@ -104,7 +105,7 @@ float expectedSarsaPrediction(int next_x, int next_y, float epsilon)
 
 void playGame(float epsilon, bool debug = false)
 {
-	int x = 0, y = 3, a = queryPolicy(x, y, epsilon);
+	int x = 0, y = 3, a = selectAction(x, y, epsilon);
 	int next_x, next_y, next_a;
 	int r;
 
@@ -116,7 +117,7 @@ void playGame(float epsilon, bool debug = false)
 		// get next state
 		running = nextState(x, y, a, next_x, next_y, r);
 
-		next_a = queryPolicy(next_x, next_y, epsilon);
+		next_a = selectAction(next_x, next_y, epsilon);
 
 
 		if (debug) // print
@@ -159,17 +160,11 @@ int main()
 			}
 
 
-
 	for (int i = 0; i < M; i++)
 	{
-		playGame(EPSILON, 0);
+		playGame(EPSILON);
 	}
 
-	for (int i = 0; i < 4; i++)
-	{
-		cout << "Action " << i << ". " << policy[0][3][i] << '\n';
-
-	}
 
 	playGame(0, true);
 }

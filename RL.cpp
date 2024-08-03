@@ -4,190 +4,145 @@
 #include <cassert>
 #include <iomanip>
 #include <string>
-#include <windows.h> // For clipboard functions
 
 using std::cout;
 using std::vector;
 using std::string;
 
-//const int STATES = 5;
-//const int ACTIONS = 2;
-//const float GAMMA = 1.0f;
-const float EPSILON = 0.03f;
-const float ALPHA = 1.0f / 5000;
+const float GAMMA = 0.95f;
+const float EPSILON = 0.1f;
+const float ALPHA = 0.5f;
 
-const int M = 100'000'000;
 
-// HIT, ACE, PLAYER SUM, DEALER SUM
-float policy[2][2][21 + 1][11 + 1];
+const int M = 10000;
 
-int actions[30], has_ace[30], player_sums[30], dealer_sums[30];
-int episode_length = 0;
 
-int randomCard()
+#define W 12
+#define H 4
+
+float policy[W][H][4];
+
+int dx[4] = { 0, 1, 0, -1 };
+int dy[4] = { -1, 0, 1, 0 };
+
+
+// returns direction
+int queryPolicy(int x, int y, float epsilon)
 {
-	int card = rand() % 13 + 1;
+	if ((static_cast<float>(rand()) / RAND_MAX) < epsilon)
+		return rand() % 4;
 
-	if (card == 1)
-		return 11;
+	int best_a = 0;
+	for (int a = 1; a < 4; a++)
+		if (policy[x][y][a] > policy[x][y][best_a])
+			best_a = a;
 
-	if (card < 10)
-		return card;
-
-	return 10;
+	return best_a;
 }
 
-
-void copyToClipboard(const std::string& s) {
-	OpenClipboard(0);
-	EmptyClipboard();
-	HGLOBAL hg = GlobalAlloc(GMEM_MOVEABLE, s.size() + 1);
-	if (!hg) {
-		CloseClipboard();
-		return;
-	}
-	memcpy(GlobalLock(hg), s.c_str(), s.size() + 1);
-	GlobalUnlock(hg);
-	SetClipboardData(CF_TEXT, hg);
-	CloseClipboard();
-	GlobalFree(hg);
-}
-
-struct State
+// returns if game still running
+bool nextState(int x, int y, int a, int& next_x, int& next_y, int& r)
 {
-	int player = 0, player_ace = 0;
-	int dealer = 0, dealer_ace = 0;
+	next_x = x + dx[a];
+	next_y = y + dy[a];
+
+	if (next_x < 0) next_x = 0;
+	else if (next_x >= W) next_x = W - 1;
+	if (next_y < 0) next_y = 0;
+	else if (next_y >= H) next_y = H - 1;
 
 
-	void playerDrawCard()
+	if (next_y == H - 1)
 	{
-		int random_card = randomCard();
-		if (random_card == 11)
-			player_ace++;
-
-
-		player += random_card;
-
-		if (player > 21 && player_ace)
+		if (next_x == W - 1)
 		{
-			player_ace--;
-			player -= 10;
+			r = 0;
+			return false;
 		}
 
-
-	}
-	void dealerDrawCard()
-	{
-		int random_card = randomCard();
-		if (random_card == 11)
-			dealer_ace++;
-
-
-		dealer += random_card;
-
-		if (dealer > 21 && dealer_ace)
+		else if (next_x > 0)
 		{
-			dealer_ace--;
-			dealer -= 10;
+			r = -100;
+			return false;
 		}
 
-
 	}
-	void dealerDrawAll()
-	{
 
-		while (dealer < 17)
+	r = -1;
+	return true;
+}
+
+// consider the actual next_action.
+float sarsaPrediction(int next_x, int next_y, int next_a)
+{
+	return policy[next_x][next_y][next_a];
+}
+
+// consider the best possible next_action.
+float qLearningPrediction(int next_x, int next_y)
+{
+	return policy[next_x][next_y][queryPolicy(next_x, next_y, 0)];
+}
+
+float expectedSarsaPrediction(int next_x, int next_y, float epsilon)
+{
+	float* probs = new float[4];
+	for (int a = 0; a < 4; a++)
+		probs[a] = epsilon / 4.0f;
+
+	int best_action = queryPolicy(next_x, next_y, 0);
+	probs[best_action] += 1 - epsilon;
+
+
+	float weighted_average = 0;
+	for (int a = 0; a < 4; a++)
+		weighted_average += policy[next_x][next_y][a] * probs[a];
+	
+	
+	return weighted_average;
+}
+
+void playGame(float epsilon, bool debug = false)
+{
+	int x = 0, y = 3, a = queryPolicy(x, y, epsilon);
+	int next_x, next_y, next_a;
+	int r;
+
+
+	bool running = true;
+
+	while (running)
+	{
+		// get next state
+		running = nextState(x, y, a, next_x, next_y, r);
+
+		next_a = queryPolicy(next_x, next_y, epsilon);
+
+
+		if (debug) // print
+			cout << "[" << x << ", " << y << "] a:" << a << " r:" << r << " -> ";
+		else // update state action pair
 		{
-			int random_card = randomCard();
-			if (random_card == 11)
-				dealer_ace++;
+			//float next_q_prediction = sarsaPrediction(next_x, next_y, next_a);
+			//float next_q_prediction = qLearningPrediction(next_x, next_y);
+			float next_q_prediction = expectedSarsaPrediction(next_x, next_y, epsilon);
 
-
-			dealer += random_card;
-
-			if (dealer > 21 && dealer_ace)
-			{
-				dealer_ace--;
-				dealer -= 10;
-			}
+			float expected_r = r + GAMMA * next_q_prediction;
+			policy[x][y][a] += ALPHA * (expected_r - policy[x][y][a]);
 		}
+		
+		
 
 
-	}
-};
 
-int policySaysHit(int player_sum, int dealer_sum, int ace, float epsilon)
-{
-	if ((float)rand() / RAND_MAX < epsilon)
-		return rand() % 2;
-
-
-	return policy[1][ace][player_sum][dealer_sum] > policy[0][ace][player_sum][dealer_sum];
-}
-
-void changePolicyBasedOnEpisode(int result)
-{
-	int a, ace, p, d;
-	for (int t = 0; t < episode_length; t++)
-	{
-		a = actions[t];  ace = has_ace[t]; p = player_sums[t]; d = dealer_sums[t];
-
-
-		policy[a][ace][p][d] += ALPHA * (result - policy[a][ace][p][d]);
-
-	}
-}
-
-float playGame(float epsilon)
-{
-	State state;
-
-	state.dealerDrawCard();
-
-	state.playerDrawCard();
-	state.playerDrawCard();
-
-	while (state.player < 12)
-		state.playerDrawCard();
-
-	episode_length = 0; // start recording episode
-
-	while (state.player <= 21)
-	{
-		bool hit = policySaysHit(state.player, state.dealer, state.player_ace, epsilon);
-
-		has_ace[episode_length] = state.player_ace;
-		player_sums[episode_length] = state.player;
-		dealer_sums[episode_length] = state.dealer;
-		actions[episode_length] = hit;
-		episode_length++;
-
-		if (hit)
-			state.playerDrawCard();
-
-		else // stand
-			break;
-
+		// execute action
+		x = next_x; y = next_y;
+		a = next_a;
 	}
 
-	// BUST
-	if (state.player > 21)
-		return -1;
-
-	// BLACKJACK
-	if (state.player == 21)
-		return 1;
+	if (debug) cout << "[" << x << ", " << y << "] -> DONE.\n\n";
 
 
-	state.dealerDrawAll();
-
-
-	if (state.dealer > 21)
-		return 1;
-	if (state.player < state.dealer)
-		return -1;
-
-	return 0;
 
 }
 
@@ -195,86 +150,26 @@ int main()
 {
 	srand(time(NULL));
 
-
-	for (int a = 0; a <= 1; a++)
-		for (int ace = 0; ace <= 1; ace++)
-			for (int p = 12; p <= 21; p++)
-				for (int d = 2; d <= 11; d++)
-				{
-					policy[a][ace][p][d] = 0;
-				}
-
+	// init policy
+	for (int x = 0; x < W; x++)
+		for (int y = 0; y < H; y++)
+			for (int a = 0; a < 4; a++)
+			{
+				policy[x][y][a] = 0;
+			}
 
 
 
 	for (int i = 0; i < M; i++)
 	{
-		int game = playGame(EPSILON);
-		//cout << game << " ";
-
-		/*for(int t = 0; t < episode_length; t++)
-			cout << "t" << t << "-> ACE:" << has_ace[t]  << " P:" << player_sums[t] << " D:" << dealer_sums[t] << "  ";
-		cout << "RESULT: " << game << '\n';*/
-
-
-		changePolicyBasedOnEpisode(game);
+		playGame(EPSILON, 0);
 	}
 
-	string s = "";
-	for (int d = 1; d <= 10; d++)
+	for (int i = 0; i < 4; i++)
 	{
-		for (int p = 12; p <= 21; p++)
-		{
-			float no_ace_decision = policy[1][0][p][d] - policy[0][0][p][d];
-
-			if (d == 1)
-				no_ace_decision = policy[1][0][p][11] - policy[0][0][p][11];
-			
-			s += std::to_string(no_ace_decision);
-			
-			if (p < 21)
-				s += "\t";
-
-			if (p == 21)
-				s += "\t\t\t";
-
-		}
-		for (int p = 12; p <= 21; p++)
-		{
-			float has_ace_decision = policy[1][1][p][d] - policy[0][1][p][d];
-
-			if (d == 1)
-				has_ace_decision = policy[1][1][p][11] - policy[0][1][p][11];
-
-			
-			s += std::to_string(has_ace_decision);
-
-			if (p < 21)
-				s += "\t";
-
-
-		}
-		s += '\n';
-	}
-
-	cout << s;
-	copyToClipboard(s);
-
-	int TEST_N = 10000;
-	int wins = 0, losses = 0, draws = 0;
-	for (int i = 0; i < TEST_N; i++)
-	{
-		int game = playGame(0);
-
-		if (game == 1)
-			wins++;
-		else if (game == -1)
-			losses++;
-		else
-			draws++;
+		cout << "Action " << i << ". " << policy[0][3][i] << '\n';
 
 	}
-	cout << "\n\nW/L/D " << (float)wins / (TEST_N) * 100 << "/" << (float)losses / (TEST_N) * 100 << "/" << (float)draws / (TEST_N) * 100;
 
-	std::cin;
+	playGame(0, true);
 }

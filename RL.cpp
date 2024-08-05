@@ -5,16 +5,21 @@
 #include <iomanip>
 #include <string>
 #include <queue>
+#include <deque>
 
 using std::cout;
 using std::vector;
 using std::string;
+using std::queue;
+using std::deque;
 
 const float GAMMA = 0.95f;
 const float EPSILON = 0.1f;
 const float ALPHA = 0.5f;
+const int TD_N = 1;
+const float GAMMA_TO_THE_N = pow(GAMMA, TD_N);
 
-const int M = 10000;
+const int M = 500;
 
 
 #define W 12
@@ -31,7 +36,7 @@ struct State
 };
 
 // returns direction to move in, based on the policy and epsilon
-int selectAction(const State& state , float epsilon)
+int selectAction(const State& state, float epsilon)
 {
 	if ((static_cast<float>(rand()) / RAND_MAX) < epsilon)
 		return rand() % 4;
@@ -45,10 +50,10 @@ int selectAction(const State& state , float epsilon)
 }
 
 // returns if game still running
-bool nextState(const State& state, int a, State& next_state, int& r)
+bool nextState(const State& state, int a, State& next_state, float& r)
 {
 	next_state = { state.x + dx[a], state.y + dy[a] };
-	
+
 	// Bounds
 	if (next_state.x < 0) next_state.x = 0;
 	else if (next_state.x >= W) next_state.x = W - 1;
@@ -74,6 +79,23 @@ bool nextState(const State& state, int a, State& next_state, int& r)
 
 	r = -1;
 	return true;
+}
+
+float rewardSum(deque<float>& rewards)
+{
+	float reward_sum = 0;
+	
+	for (int i = 0; i < rewards.size(); i++)
+	{
+		reward_sum *= GAMMA;
+
+		reward_sum += rewards.back();
+
+		rewards.push_front(rewards.back());
+		rewards.pop_back();
+	}
+
+	return reward_sum;
 }
 
 // consider the actual next_action.
@@ -102,8 +124,8 @@ float expectedSarsaPrediction(const State& next_state, float epsilon)
 	float weighted_average = 0;
 	for (int a = 0; a < 4; a++)
 		weighted_average += policy[next_state.x][next_state.y][a] * probs[a];
-	
-	
+
+
 	return weighted_average;
 }
 
@@ -111,9 +133,10 @@ void playGame(float epsilon, bool debug = false)
 {
 	State state = { 0, 3 }; int a = selectAction(state, epsilon);
 	State next_state; int next_a;
-	
-	
-	int r;
+
+	queue<State> states({ state });
+	queue<int> actions({ a });
+	deque<float> rewards;
 
 
 	bool running = true;
@@ -121,24 +144,33 @@ void playGame(float epsilon, bool debug = false)
 	while (running)
 	{
 		// get next state
+		float r;
 		running = nextState(state, a, next_state, r);
 
 		next_a = selectAction(next_state, epsilon);
 
+		states.push(next_state);
+		actions.push(next_a);
+		rewards.push_back(r);
+
 
 		if (debug) // print
 			cout << "[" << state.x << ", " << state.y << "] a:" << a << " r:" << r << " -> ";
-		else // update state action pair
+		else if (rewards.size() == TD_N) // update state action pair
 		{
-			//float next_q_prediction = sarsaPrediction(next_state, next_a);
-			//float next_q_prediction = qLearningPrediction(next_state);
+			State updated_state = states.front(); states.pop();
+			int action_taken = actions.front(); actions.pop();
+
 			float next_q_prediction = expectedSarsaPrediction(next_state, epsilon);
 
-			float expected_r = r + GAMMA * next_q_prediction;
-			policy[state.x][state.y][a] += ALPHA * (expected_r - policy[state.x][state.y][a]);
+			float reward_sum = rewardSum(rewards);
+
+			float expected_r = reward_sum + GAMMA_TO_THE_N * next_q_prediction;
+			policy[updated_state.x][updated_state.y][action_taken] += ALPHA * (expected_r - policy[updated_state.x][updated_state.y][action_taken]);
+
+			rewards.pop_front();
+			
 		}
-		
-		
 
 
 
@@ -148,6 +180,23 @@ void playGame(float epsilon, bool debug = false)
 	}
 
 	if (debug) cout << "[" << state.x << ", " << state.y << "] -> DONE.\n\n";
+
+
+	while (rewards.size())
+	{
+		State updated_state = states.front();
+		int action_taken = actions.front();
+
+
+		float expected_r = rewardSum(rewards);
+		policy[updated_state.x][updated_state.y][action_taken] += ALPHA * (expected_r - policy[updated_state.x][updated_state.y][action_taken]);
+
+
+		states.pop();
+		actions.pop();
+		rewards.pop_front();
+
+	}
 
 
 

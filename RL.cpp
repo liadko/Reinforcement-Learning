@@ -13,78 +13,65 @@ using std::string;
 using std::queue;
 using std::deque;
 
-const float GAMMA = 0.95f;
-const float EPSILON = 0.1f;
-const float ALPHA = 0.5f;
-const int TD_N = 1;
+const float GAMMA = 1.0f;
+const float EPSILON = 0.0f;
+const float ALPHA = 4e-5f;
+const int TD_N = 2000;
 const float GAMMA_TO_THE_N = pow(GAMMA, TD_N);
 
-const int M = 500;
+const int M = 500000;
+
+const int STATES = 1000;
+const int FEATURES = 10; // X and W are feature vectors
 
 
-#define W 12
-#define H 4
+float W[FEATURES];
 
-float policy[W][H][4];
-
-int dx[4] = { 0, 1, 0, -1 };
-int dy[4] = { -1, 0, 1, 0 };
 
 struct State
 {
-	int x, y;
+	int s;
 };
 
-// returns direction to move in, based on the policy and epsilon
+float valueFunction(const State& state)
+{
+	int index = state.s / 100;
+	return W[index]; // one hot encoding basically means just take the W at that index
+}
+
 int selectAction(const State& state, float epsilon)
 {
-	if ((static_cast<float>(rand()) / RAND_MAX) < epsilon)
-		return rand() % 4;
+	int mult = 1;
+	if (rand() % 2 == 0)
+		mult = -1;
 
-	int best_a = 0;
-	for (int a = 1; a < 4; a++)
-		if (policy[state.x][state.y][a] > policy[state.x][state.y][best_a])
-			best_a = a;
-
-	return best_a;
+	return mult * ((rand() % 100) + 1);
 }
 
 // returns if game still running
 bool nextState(const State& state, int a, State& next_state, float& r)
 {
-	next_state = { state.x + dx[a], state.y + dy[a] };
+	next_state = { state.s + a };
 
-	// Bounds
-	if (next_state.x < 0) next_state.x = 0;
-	else if (next_state.x >= W) next_state.x = W - 1;
-	if (next_state.y < 0) next_state.y = 0;
-	else if (next_state.y >= H) next_state.y = H - 1;
-
-
-	if (next_state.y == H - 1)
+	if (next_state.s >= STATES - 1)
 	{
-		if (next_state.x == W - 1)
-		{
-			r = 0;
-			return false;
-		}
-
-		else if (next_state.x > 0)
-		{
-			r = -100;
-			return false;
-		}
-
+		r = 1;
+		return false;
+	}
+	if (next_state.s <= 0)
+	{
+		r = -1;
+		return false;
 	}
 
-	r = -1;
+	r = 0;
 	return true;
 }
 
 float rewardSum(deque<float>& rewards)
 {
 	float reward_sum = 0;
-	
+
 	for (int i = 0; i < rewards.size(); i++)
 	{
 		reward_sum *= GAMMA;
@@ -98,40 +85,10 @@ float rewardSum(deque<float>& rewards)
 	return reward_sum;
 }
 
-// consider the actual next_action.
-float sarsaPrediction(int next_x, int next_y, int next_a)
-{
-	return policy[next_x][next_y][next_a];
-}
-
-// consider the best possible next_action.
-float qLearningPrediction(const State& next_state)
-{
-	return policy[next_state.x][next_state.y][selectAction(next_state, 0)];
-}
-
-// weigh the prediction based on the next action probabilities.
-float expectedSarsaPrediction(const State& next_state, float epsilon)
-{
-	float probs[4];
-	for (int a = 0; a < 4; a++)
-		probs[a] = epsilon / 4.0f;
-
-	int best_action = selectAction(next_state, 0);
-	probs[best_action] += 1 - epsilon;
-
-
-	float weighted_average = 0;
-	for (int a = 0; a < 4; a++)
-		weighted_average += policy[next_state.x][next_state.y][a] * probs[a];
-
-
-	return weighted_average;
-}
 
 void playGame(float epsilon, bool debug = false)
 {
-	State state = { 0, 3 }; int a = selectAction(state, epsilon);
+	State state = { 500 }; int a = selectAction(state, epsilon);
 	State next_state; int next_a;
 
 	queue<State> states({ state });
@@ -155,21 +112,21 @@ void playGame(float epsilon, bool debug = false)
 
 
 		if (debug) // print
-			cout << "[" << state.x << ", " << state.y << "] a:" << a << " r:" << r << " -> ";
+			cout << "[" << state.s << "] a:" << a << " r:" << r << " -> ";
 		else if (rewards.size() == TD_N) // update state action pair
 		{
 			State updated_state = states.front(); states.pop();
 			int action_taken = actions.front(); actions.pop();
 
-			float next_q_prediction = expectedSarsaPrediction(next_state, epsilon);
 
 			float reward_sum = rewardSum(rewards);
+			int bucket_index = updated_state.s / 100;
 
-			float expected_r = reward_sum + GAMMA_TO_THE_N * next_q_prediction;
-			policy[updated_state.x][updated_state.y][action_taken] += ALPHA * (expected_r - policy[updated_state.x][updated_state.y][action_taken]);
+			float expected_r = reward_sum + GAMMA_TO_THE_N * valueFunction(next_state);
+			W[bucket_index] += ALPHA * (expected_r - W[bucket_index]);
 
 			rewards.pop_front();
-			
+
 		}
 
 
@@ -179,7 +136,7 @@ void playGame(float epsilon, bool debug = false)
 		a = next_a;
 	}
 
-	if (debug) cout << "[" << state.x << ", " << state.y << "] -> DONE.\n\n";
+	if (debug) cout << "[" << state.s << "] -> DONE.\n\n";
 
 
 	while (rewards.size())
@@ -187,9 +144,10 @@ void playGame(float epsilon, bool debug = false)
 		State updated_state = states.front();
 		int action_taken = actions.front();
 
+		int bucket_index = updated_state.s / 100;
 
 		float expected_r = rewardSum(rewards);
-		policy[updated_state.x][updated_state.y][action_taken] += ALPHA * (expected_r - policy[updated_state.x][updated_state.y][action_taken]);
+		W[bucket_index] += ALPHA * (expected_r - W[bucket_index]);
 
 
 		states.pop();
@@ -207,19 +165,16 @@ int main()
 	srand(time(NULL));
 
 	// init policy
-	for (int x = 0; x < W; x++)
-		for (int y = 0; y < H; y++)
-			for (int a = 0; a < 4; a++)
-			{
-				policy[x][y][a] = 0;
-			}
-
+	for (int i = 0; i < FEATURES; i++)
+		W[i] = 0;
 
 	for (int i = 0; i < M; i++)
 	{
 		playGame(EPSILON);
 	}
 
-
 	playGame(0, true);
+
+	for (int i = 0; i < 1000; i+=10)
+		cout << valueFunction({ i }) << '\n';
 }
